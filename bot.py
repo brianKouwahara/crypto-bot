@@ -128,6 +128,19 @@ def bot_loop():
     if not cfg_list:
         raise ValueError("[ERROR] Aucune paire valide dans PAIRS_CFG")
 
+    # ✅ Notification démarrage
+    try:
+        send_webhook("bot_start", {
+            "emoji": "🚀",
+            "message": "Bot démarré",
+            "mode": "TEST" if DRY_RUN else "LIVE",
+            "pairs_count": len(cfg_list),
+            "min_tf": min(tf_to_minutes(c["tf"]) for c in cfg_list),
+            "ts": int(time.time())
+        })
+    except Exception:
+        pass
+
     # -------- Watchdog basé sur le plus petit TF --------
     if MAX_STALE_SEC_ENV:
         try:
@@ -184,7 +197,20 @@ def bot_loop():
         # Heartbeat / anti-stale
         touch_heartbeat()
         if (time.time() - _last_progress) > MAX_STALE_SEC:
-            log.error(f"[STALE] Pas de progrès > {MAX_STALE_SEC}s. Exit(42).")
+            delay = int(time.time() - _last_progress)
+            log.error(f"[STALE] Pas de progrès > {MAX_STALE_SEC}s (delay={delay}). Exit(42).")
+            # ✅ Notification watchdog (stale)
+            try:
+                send_webhook("bot_stale_exit", {
+                    "emoji": "⏳",
+                    "message": "Watchdog: données/avancement figés",
+                    "stale_sec": delay,
+                    "max_stale_sec": MAX_STALE_SEC,
+                    "code": 42,
+                    "ts": int(time.time())
+                })
+            except Exception:
+                pass
             sys.exit(42)
 
         now = utcnow()
@@ -392,7 +418,6 @@ def bot_loop():
                 reasons = []
                 if not vol_ok:
                     reasons.append("VolOk=False")
-                # si Donchian requis (courts TF dans config), et pas cassé
                 if conf["donchian"].get("require_breakout", True) and (don_high_last is not None) and (close <= don_high_last):
                     reasons.append("Donchian=False")
                 if rsi_last <= rsi_avg_last:
@@ -569,9 +594,26 @@ def main():
         try:
             bot_loop()
         except SystemExit:
-            # Exit volontaire (watchdog) -> l'orchestrateur redémarre
+            # Exit volontaire (watchdog) -> l’orchestrateur redémarre
             raise
         except Exception as e:
+            # ✅ Notification crash + annonce redémarrage
+            try:
+                send_webhook("bot_crash", {
+                    "emoji": "💥",
+                    "message": "Crash imprévu",
+                    "error": str(e),
+                    "trace": traceback.format_exc()[-1200:],  # tronqué pour TG
+                    "ts": int(time.time())
+                })
+                send_webhook("bot_autorestart", {
+                    "emoji": "🔁",
+                    "message": "Redémarrage automatique planifié",
+                    "delay_sec": 10,
+                    "ts": int(time.time())
+                })
+            except Exception:
+                pass
             log.error(f"[CRASH] Bot crashe: {e}\n{traceback.format_exc()}")
             log.info("[RESTART] Redemarrage dans 10s...")
             time.sleep(10)
