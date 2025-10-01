@@ -15,9 +15,9 @@ from utils import (
     utcnow, next_candle_time, minutes_between, touch_heartbeat, note_progress,
     get_env_clean, tf_to_minutes, send_webhook
 )
-from .signals import hybrid_signal, pick_conf_for_tf, avg_dollar_volume, compute_atr
-from .state import load_state, save_state
-from .execution import build_exchange, with_retry, place_market_buy, place_market_sell_all
+from signals import hybrid_signal, pick_conf_for_tf, avg_dollar_volume, compute_atr
+from state import load_state, save_state
+from execution import build_exchange, with_retry, place_market_buy, place_market_sell_all
 
 # -------- LOGGING --------
 LOG_FMT = "%(asctime)s | %(levelname)s | %(message)s"
@@ -221,7 +221,7 @@ def bot_loop():
 
                 # MAX_STALE par TF
                 last_ts = df["ts"].iloc[-1]
-                from .config import STOP_LOSS_BY_TF as _X  # just to avoid unused warning
+                from config import STOP_LOSS_BY_TF as _X  # just to avoid unused warning
                 MAX_STALE_BY_TF = {"1m":3,"2m":5,"5m":10,"15m":30,"30m":60,"1h":90,"2h":150,"4h":360,"1d":2880,"1w":4320}
                 staleness_min = minutes_between(utcnow(), last_ts)
                 max_stale = MAX_STALE_BY_TF.get(tf, 120)
@@ -230,7 +230,7 @@ def bot_loop():
                     continue
 
                 # Filtre de volume global (optionnel)
-                from .config import MIN_AVG_DOLLAR_VOL, VOL_LOOKBACK
+                from config import MIN_AVG_DOLLAR_VOL, VOL_LOOKBACK
                 if MIN_AVG_DOLLAR_VOL > 0:
                     avg_vol_usd_glob = avg_dollar_volume(df, VOL_LOOKBACK)
                     if avg_vol_usd_glob < MIN_AVG_DOLLAR_VOL:
@@ -263,7 +263,7 @@ def bot_loop():
                     save_state(last_side, entry_price, peak_price, tp_armed, base_qty_at_entry, last_trade_ts, buy_timestamps, cb_block_until_ts)
 
                 # Renfort manuel ?
-                from .config import MANUAL_ADD_TOL, USE_VWAP_ON_MANUAL_ADD, VWAP_LOOKBACK_MIN
+                from config import MANUAL_ADD_TOL, USE_VWAP_ON_MANUAL_ADD, VWAP_LOOKBACK_MIN
                 if last_side.get(side_key) == "buy" and prev_base not in (None, 0.0) and cur_base > prev_base:
                     growth = (cur_base - prev_base) / prev_base
                     if growth >= MANUAL_ADD_TOL:
