@@ -26,40 +26,45 @@ except Exception:
     SELL_SLIP_PCT = None
 
 # ----------- Risk sizing / volume / CB -----------
-RISK_PER_TRADE_PCT = float(os.getenv("RISK_PER_TRADE_PCT", "0"))
+RISK_PER_TRADE_PCT = float(os.getenv("RISK_PER_TRADE_PCT", "0"))  # si tu veux risk par % balance
 ATR_LOOKBACK       = int(os.getenv("ATR_LOOKBACK", "14"))
 ATR_MULT_SL        = float(os.getenv("ATR_MULT_SL", "1.5"))
 
-MIN_AVG_DOLLAR_VOL = float(os.getenv("MIN_AVG_DOLLAR_VOL", "0"))
+# Volume universel (pas besoin de token spécifique)
 VOL_LOOKBACK       = int(os.getenv("VOL_LOOKBACK", "20"))
+MIN_AVG_DOLLAR_VOL = float(os.getenv("MIN_AVG_DOLLAR_VOL", "0"))  # legacy, plus utilisé directement
 
-CB_SYMBOL      = os.getenv("CB_SYMBOL", "BTC/USDT")
-CB_TF          = os.getenv("CB_TF", "5m")
-CB_WINDOW_MIN  = int(os.getenv("CB_WINDOW_MIN", "15"))
-CB_DROP_PCT    = float(os.getenv("CB_DROP_PCT", "3"))
-CB_COOLDOWN_MIN= int(os.getenv("CB_COOLDOWN_MIN", "30"))
+# Capital buffer / circuit breaker
+CB_SYMBOL       = os.getenv("CB_SYMBOL", "BTC/USDT")
+CB_TF           = os.getenv("CB_TF", "5m")
+CB_WINDOW_MIN   = int(os.getenv("CB_WINDOW_MIN", "15"))
+CB_DROP_PCT     = float(os.getenv("CB_DROP_PCT", "3"))
+CB_COOLDOWN_MIN = int(os.getenv("CB_COOLDOWN_MIN", "30"))
 
 MAX_BUYS_PER_24H = int(os.getenv("MAX_BUYS_PER_24H", "0"))
 WEBHOOK_URL      = os.getenv("WEBHOOK_URL", "").strip()
 
-# ----------- Profils indicateurs -----------
+# ----------- Profils indicateurs (universels) -----------
+# Petits TF → Donchian obligatoire + volume mini plus bas
 SHORT_TF_CONF = {
-    "supertrend": {"atr_period": 7,  "mult": 2.0},
-    "donchian":   {"length": 20},
-    "rsi":        {"period": 7,  "smooth": 7},
-    "volume":     {"lookback": 20, "mult": 1.6, "min_abs": 100_000},
+    "supertrend": {"atr_period": 7, "mult": 2.0},
+    "donchian":   {"length": 20, "require_breakout": True},   # cassure OBLIGATOIRE
+    "rsi":        {"period": 7, "smooth": 7},
+    "volume":     {"lookback": 20, "mult": 1.2, "min_abs": 75_000},  # cur_vol > 1.2*avg ET > 75k$
 }
+# Longs TF → Donchian optionnel + volume mini plus haut
 LONG_TF_CONF = {
     "supertrend": {"atr_period": 14, "mult": 3.0},
-    "donchian":   {"length": 55},
+    "donchian":   {"length": 55, "require_breakout": False},  # cassure NON obligatoire
     "rsi":        {"period": 14, "smooth": 21},
-    "volume":     {"lookback": 50, "mult": 1.2, "min_abs": 5_000_000},
+    "volume":     {"lookback": 50, "mult": 1.0, "min_abs": 150_000},  # cur_vol > avg ET > 150k$
 }
 
 # ----------- Watchdog -----------
-HEARTBEAT_FILE        = os.getenv("HEARTBEAT_FILE", "/tmp/bot_heartbeat.txt")
-HEARTBEAT_INTERVAL_SEC= int(os.getenv("HEARTBEAT_INTERVAL_SEC", "30"))
-MAX_STALE_SEC_ENV     = os.getenv("MAX_STALE_SEC", "").strip()
+HEARTBEAT_FILE         = os.getenv("HEARTBEAT_FILE", "/tmp/bot_heartbeat.txt")
+HEARTBEAT_INTERVAL_SEC = int(os.getenv("HEARTBEAT_INTERVAL_SEC", "30"))
+MAX_STALE_SEC_ENV      = os.getenv("MAX_STALE_SEC", "").strip()
+# -> MAX_STALE_SEC sera recalculé dynamiquement dans bot.py selon min TF
 
 # ----------- Hystérésis / SL/TP / Stale par TF -----------
 HYST_EPS_DEFAULT = 2.0
@@ -78,3 +83,7 @@ MANUAL_ADD_TOL           = float(os.getenv("MANUAL_ADD_TOL", "0.03"))
 USE_VWAP_ON_MANUAL_ADD   = (os.getenv("USE_VWAP_ON_MANUAL_ADD", "false").lower() == "true")
 VWAP_LOOKBACK_MIN        = int(os.getenv("VWAP_LOOKBACK_MIN", "7"))
 MANUAL_SELL_EMPTY_THRESH = float(os.getenv("MANUAL_SELL_EMPTY_THRESH", "1e-9"))
+
+# ----------- Anti-slippage / risk fraction globaux -----------
+DEFAULT_MAX_SLIPPAGE_PCT = float(os.getenv("DEFAULT_MAX_SLIPPAGE_PCT", "2.0"))
+DEFAULT_RISK_FRACTION    = float(os.getenv("DEFAULT_RISK_FRACTION", "0.99"))  # max 99% de l’USDT libre

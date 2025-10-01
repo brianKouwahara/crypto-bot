@@ -104,9 +104,6 @@ def hybrid_signal(
     """
     Retourne: (rsi_last, rsi_avg_last, st_trend, don_high_last, don_low_last, vol_ok, action)
     action ∈ {"buy", "sell", None}
-
-    Les paramètres avg_type/avg_period/rsi_period permettent d'overrider le profil par défaut
-    en fonction de PAIRS_CFG (bot.py).
     """
     # Périodes finales (fallback sur conf)
     rsi_per   = int(rsi_period or conf["rsi"]["period"])
@@ -141,12 +138,23 @@ def hybrid_signal(
     v_look = int(conf["volume"]["lookback"])
     avg_vol_usd = avg_dollar_volume(df, v_look)
     cur_vol_usd = float(df["close"].iloc[-1] * df["vol"].iloc[-1]) if len(df) else 0.0
-    vol_ok = (avg_vol_usd > 0) and (cur_vol_usd > avg_vol_usd * conf["volume"]["mult"]) and (cur_vol_usd > conf["volume"]["min_abs"])
+    vol_ok = (avg_vol_usd > 0) and \
+             (cur_vol_usd > avg_vol_usd * conf["volume"]["mult"]) and \
+             (cur_vol_usd > conf["volume"]["min_abs"])
 
-    # Règles
+    # ---- Règles ----
     last_close = float(df["close"].iloc[idx])
-    buy_cond  = (rsi_last > rsi_avg_last) and (st_trend == "bull") and (don_high_last is not None and last_close > don_high_last) and vol_ok
-    sell_cond = (rsi_last < rsi_avg_last) and (st_trend == "bear") and (don_low_last  is not None and last_close < don_low_last)
+
+    # Donchian : cassure obligatoire ou non selon la conf
+    require_breakout = bool(conf.get("donchian", {}).get("require_breakout", True))
+    if don_high_last is None:
+        don_ok = True
+    else:
+        don_ok = (last_close > don_high_last) if require_breakout else True
+
+    buy_cond  = (rsi_last > rsi_avg_last) and (st_trend == "bull") and don_ok and vol_ok
+    sell_cond = (rsi_last < rsi_avg_last) and (st_trend == "bear") and \
+                (don_low_last is not None and last_close < don_low_last)
 
     action = "buy" if buy_cond else ("sell" if sell_cond else None)
     return rsi_last, rsi_avg_last, st_trend, don_high_last, don_low_last, bool(vol_ok), action

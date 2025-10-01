@@ -10,7 +10,8 @@ from config import (
     MIN_AVG_DOLLAR_VOL, VOL_LOOKBACK, CB_SYMBOL, CB_TF, CB_WINDOW_MIN, CB_DROP_PCT,
     CB_COOLDOWN_MIN, MAX_BUYS_PER_24H, HYST_EPS_DEFAULT, HYST_EPS_BY_TF,
     STOP_LOSS_PCT_FALLBACK, TP_TRIGGER_FALLBACK, TP_TRAIL_FALLBACK,
-    STOP_LOSS_BY_TF, TP_TRIGGER_BY_TF, TP_TRAIL_BY_TF, MAX_STALE_SEC_ENV
+    STOP_LOSS_BY_TF, TP_TRIGGER_BY_TF, TP_TRAIL_BY_TF, MAX_STALE_SEC_ENV,
+    DEFAULT_MAX_SLIPPAGE_PCT, DEFAULT_RISK_FRACTION
 )
 from utils import (
     utcnow, next_candle_time, minutes_between, touch_heartbeat, note_progress,
@@ -127,7 +128,7 @@ def bot_loop():
     if not cfg_list:
         raise ValueError("[ERROR] Aucune paire valide dans PAIRS_CFG")
 
-    # MAX_STALE_SEC
+    # -------- Watchdog basé sur le plus petit TF --------
     if MAX_STALE_SEC_ENV:
         try:
             MAX_STALE_SEC = int(MAX_STALE_SEC_ENV)
@@ -135,7 +136,8 @@ def bot_loop():
             MAX_STALE_SEC = 600
     else:
         min_tf_min = min(tf_to_minutes(c["tf"]) for c in cfg_list)
-        MAX_STALE_SEC = max(120, min(900, int(min_tf_min * 2 * 60)))
+        # 3x le plus petit TF + marge 60s
+        MAX_STALE_SEC = int(min_tf_min * 3 * 60 + 60)
     log.info(f"[WATCHDOG] MAX_STALE_SEC = {MAX_STALE_SEC}s")
 
     exchange = build_exchange()
@@ -271,12 +273,12 @@ def bot_loop():
                         log.info(f"[LIQ] {sym}@{tf} avg$vol={avg_vol_usd_glob:.0f} < {MIN_AVG_DOLLAR_VOL:.0f} → skip")
                         continue
 
-                # --- Signal hybride avec overrides PAIRS_CFG ---
+                # --- Signal hybride ---
                 conf = pick_conf_for_tf(tf)
                 rsi_last, rsi_avg_last, st_trend, don_high_last, don_low_last, vol_ok, action = hybrid_signal(
                     df, tf, conf,
                     signal_mode=signal_mode,
-                    avg_type=avg,        # NEW: applique SMA/EMA du .env
+                    avg_type=avg,
                     avg_period=avg_period,
                     rsi_period=rsi_period
                 )
@@ -386,9 +388,22 @@ def bot_loop():
                         log.info(f"[TP] Trailing SELL {sym}: drawdown={drawdown_net*100:.2f}%")
                         action = "sell"
 
+                # -------- LOG "raison du refus" + état --------
+                reasons = []
+                if not vol_ok:
+                    reasons.append("VolOk=False")
+                # si Donchian requis (courts TF dans config), et pas cassé
+                if conf["donchian"].get("require_breakout", True) and (don_high_last is not None) and (close <= don_high_last):
+                    reasons.append("Donchian=False")
+                if rsi_last <= rsi_avg_last:
+                    reasons.append("RSI<=RSIavg")
+                if st_trend != "bull":
+                    reasons.append("ST!=bull")
+
                 log.info(
                     f"[DATA] {sym} | Close={close:.8f} | RSI={rsi_last:.2f}/{rsi_avg_last:.2f} | "
-                    f"ST={st_trend} | Don(H/L)={don_high_last}/{don_low_last} | VolOK={vol_ok}"
+                    f"ST={st_trend} | Don(H/L)={don_high_last}/{don_low_last} | VolOK={vol_ok} | "
+                    f"can_buy={action=='buy'} | reason={'OK' if not reasons else ','.join(reasons)}"
                 )
 
                 # Limite par bougie
@@ -431,6 +446,8 @@ def bot_loop():
                 if action == "buy":
                     usdt_amt_alloc = (float(alloc[:-1]) * usdt_free / 100.0) if alloc.endswith('%') else float(alloc)
                     usdt_amt = usdt_amt_alloc
+
+                    # --- Risk sizing optionnel (ATR/SL) ---
                     if RISK_PER_TRADE_PCT > 0:
                         try:
                             atr = compute_atr(df, ATR_LOOKBACK)
@@ -443,14 +460,18 @@ def bot_loop():
                         except Exception as e:
                             log.warning(f"[RISK] Sizing ATR impossible: {e}")
 
-                    usdt_amt = max(0.0, min(usdt_amt, usdt_free_local * 0.99))
+                    # --- Risk fraction global ---
+                    usdt_amt = max(0.0, min(usdt_amt, usdt_free_local * DEFAULT_RISK_FRACTION))
+
                     if usdt_amt <= MIN_BUY_USDT:
                         log.info(f"[BUY-SKIP] Montant insuffisant (<= {MIN_BUY_USDT} USDT)")
                     else:
-                        log.info(f"[BUY] {sym} usdt={usdt_amt:.2f} (slip={slip_pct}%)")
+                        # --- Anti-slippage universel (manuel par paire > sinon défaut global) ---
+                        slip_limit = (slip_pct if (slip_pct is not None) else DEFAULT_MAX_SLIPPAGE_PCT)
+                        log.info(f"[BUY] {sym} usdt={usdt_amt:.2f} (slip≤{slip_limit}%)")
                         if not DRY_RUN:
                             try:
-                                order = place_market_buy(exchange, sym, usdt_amt, slip_limit_pct=slip_pct)
+                                order = place_market_buy(exchange, sym, usdt_amt, slip_limit_pct=slip_limit)
                                 if isinstance(order, dict) and order.get("skipped"):
                                     log.info(f"[BUY-SKIP] {sym} (reason={order.get('reason')})")
                                 else:
