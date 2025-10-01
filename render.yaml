@@ -1,0 +1,12 @@
+services:
+  - type: worker
+    name: bitget-bot
+    env: python
+    plan: starter
+    autoDeploy: true
+    startCommand: python -m botv2.bot
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11
+      - key: DRY_RUN
+        value: "true"   # passe à "false" pour LIVE

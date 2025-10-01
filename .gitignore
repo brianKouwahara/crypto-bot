@@ -1,0 +1,25 @@
+# --- Fichiers sensibles ---
+.env
+*.log
+state.json
+
+# --- Cache Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+
+# --- Environnements virtuels ---
+.venv/
+venv/
+ENV/
+
+# --- Outils IDE ---
+.vscode/
+.idea/
+*.swp
+
+# --- Autres fichiers temporaires ---
+.DS_Store
+Thumbs.db
