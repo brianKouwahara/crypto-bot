@@ -147,7 +147,7 @@ def bot_loop():
         import time as _t, ccxt
         # Heartbeat / stale
         touch_heartbeat()
-        if (time.time() - getattr(__import__("botv2.utils", fromlist=['note_progress']), " _last_progress", time.time())) > MAX_STALE_SEC:
+        if (time.time() - getattr(__import__("botv2 utils", fromlist=['note_progress']), " _last_progress", time.time())) > MAX_STALE_SEC:
             log.error(f"[STALE] Pas de progrès > {MAX_STALE_SEC}s. Exit(42).")
             sys.exit(42)
 
